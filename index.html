@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>휘매쓰 연산 챌린지!</title>
+  
+  <!-- 1) MathJax 추가 (CDN) -->
+  <!-- 아래 설정은 TeX-CHTML 변환을 사용, 인라인 수식 구분 기호를 \\( \\) 형태로 지정 -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\(','\\)'], ['$', '$']],
+      },
+      svg: {
+        fontCache: 'global'
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+  
+  <style>
+    body {
+      margin: 0; padding: 0;
+      font-family: sans-serif;
+      background: linear-gradient(to bottom right, #cceeff, #ffffff);
+      color: #333;
+    }
+    h1, h2, h3 {
+      text-align: center;
+      margin: 10px;
+    }
+    #gameContainer {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 10px;
+      text-align: center;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    button {
+      padding: 8px 16px;
+      margin: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background-color: #007BFF;
+      color: white;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .hidden { display: none; }
+    #energyBarContainer {
+      width: 60%;
+      height: 20px;
+      background-color: #ddd;
+      margin: 10px auto;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+    }
+    #energyBar {
+      height: 100%;
+      width: 100%;
+      background-color: #28a745;
+      transition: width 0.2s linear;
+    }
+    #totalTimeDisplay {
+      font-size: 0.9rem; 
+      color: #555;
+      margin-bottom: 5px;
+    }
+    #chanceDisplay {
+      font-weight: bold;
+      color: #c33;
+    }
+    #questionText {
+      font-size: 1.2rem;
+      margin: 10px;
+      min-height: 60px; /* 수식 높이가 있을 수 있으니 여유 */
+    }
+    #answerInput {
+      font-size: 1rem;
+      padding: 5px;
+      width: 120px;
+      text-align: center;
+    }
+    #scoreDisplay {
+      font-weight: bold;
+      color: #006400;
+    }
+    .difficultyBtn {
+      font-size: 1.2rem;
+      background-color: #ff9966;
+    }
+  </style>
+</head>
+<body>
+<div id="gameContainer">
+  <h1>휘매쓰 연산 챌린지!</h1>
+  
+  <!-- 난이도 선택 화면 -->
+  <div id="difficultyScreen">
+    <h3>난이도를 선택하세요</h3>
+    <button class="difficultyBtn" onclick="selectDifficulty('최상')">최상 (20초, 문제당 20점)</button>
+    <button class="difficultyBtn" onclick="selectDifficulty('상')">상 (30초, 문제당 15점)</button>
+    <button class="difficultyBtn" onclick="selectDifficulty('중')">중 (40초, 문제당 13점)</button>
+    <button class="difficultyBtn" onclick="selectDifficulty('하')">하 (시간 제한 없음, 문제당 10점)</button>
+  </div>
+  
+  <!-- 실제 게임화면 -->
+  <div id="gameScreen" class="hidden">
+    <h2 id="scoreDisplay">점수: 0</h2>
+    <div id="totalTimeDisplay">전체 진행 시간: 0초</div>
+    <div id="chanceDisplay">남은 기회: 3</div>
+    
+    <!-- 에너지바(시간 제한용) -->
+    <div id="energyBarContainer" class="hidden">
+      <div id="energyBar"></div>
+    </div>
+    
+    <h3 id="questionText"></h3>
+    <input type="text" id="answerInput" placeholder="답을 입력" />
+    <br />
+    <button onclick="submitAnswer()">제출</button>
+    
+    <div id="feedback"></div>
+  </div>
+  
+  <!-- 게임오버 화면 -->
+  <div id="gameOverScreen" class="hidden">
+    <h2>게임 종료!</h2>
+    <p id="finalScore"></p>
+    <button onclick="location.reload()">다시 시작하기</button>
+  </div>
+</div>
+
+<script>
+/*
+  이번 예시는
+    1) 혼합분수 형태( ex: "4\\frac{7}{10}" )를 MathJax 렌더링
+    2) 문제 100개 자동생성 -> 셔플
+    3) 3회 기회와 난이도별 시간제한
+    4) 문제 표시 후 MathJax.typesetPromise() 호출
+*/
+
+// 1) 문제 데이터 100개 생성
+const problems = [];
+generateFractionDecimalProblems(100);
+
+let shuffledQuestions = [];
+let currentIndex = 0;
+let currentQuestion;
+let score = 0;
+let chance = 3;
+let totalTime = 0;
+let totalTimeInterval;
+let energyInterval;
+let energyTime;
+let maxEnergyTime;
+let difficulty;
+let questionPoint;
+
+/** 
+ * 혼합분수 -> 소수 변환 문제 100개 생성 
+ * - 정수부: 0~9
+ * - 분모: 10, 100, 1000, 10000 (최대 소수점 4자리)
+ * - 분자: 1~denominator-1
+ * - 출력은 "4 \\frac{7}{10}"처럼 수식형태
+ * - 정답: 4 + 7/10 = 4.7
+ */
+function generateFractionDecimalProblems(num){
+  const denominators = [10, 100, 1000, 10000];
+  for(let i=0; i<num; i++){
+    let denominator = denominators[Math.floor(Math.random()*denominators.length)];
+    let integerPart = Math.floor(Math.random()*10); // 0~9
+    let numerator = Math.floor(Math.random()*(denominator-1))+1; // 1..(den-1)
+    
+    let fractionValue = integerPart + (numerator / denominator);
+    // 소수 문자열 (최대 4자리)
+    let decimalStr = fractionValue.toFixed(4);
+    // trailing zero 제거 (ex: 3.7000 -> 3.7)
+    decimalStr = decimalStr.replace(/(\.\d*?[1-9])0+$/,'$1').replace(/\.0+$/,'');
+    
+    // 문제: " integerPart \\frac{ numerator }{ denominator } 를 소수로 나타내시오."
+    // LaTeX: ex) "4 \\frac{7}{10}"
+    //          or "4 \\(\frac{7}{10}\\)"  -- MathJax inlined
+    let questionLatex = `${integerPart}\\frac{${numerator}}{${denominator}}`;
+    let questionText = `${integerPart} \\(\\frac{${numerator}}{${denominator}}\\) 를 소수로 나타내시오.`;
+    
+    problems.push({
+      question: questionText, // 실제 화면에 표시할 문제(HTML/MathJax)
+      answer: decimalStr      // 소수 정답
+    });
+  }
+}
+
+function selectDifficulty(diff){
+  difficulty = diff;
+  switch(diff){
+    case '최상':
+      maxEnergyTime = 20;
+      questionPoint = 20;
+      break;
+    case '상':
+      maxEnergyTime = 30;
+      questionPoint = 15;
+      break;
+    case '중':
+      maxEnergyTime = 40;
+      questionPoint = 13;
+      break;
+    case '하':
+      maxEnergyTime = -1;
+      questionPoint = 10;
+      break;
+  }
+  
+  document.getElementById('difficultyScreen').classList.add('hidden');
+  document.getElementById('gameScreen').classList.remove('hidden');
+  
+  // 전체 시간 카운트
+  totalTimeInterval = setInterval(()=>{
+    totalTime++;
+    document.getElementById('totalTimeDisplay').textContent = 
+      "전체 진행 시간: " + totalTime + "초";
+  },1000);
+  
+  startGame();
+}
+
+function startGame(){
+  score = 0;
+  chance = 3;
+  currentIndex = 0;
+  shuffledQuestions = shuffleArray(problems.slice());
+  
+  document.getElementById('scoreDisplay').textContent = "점수: 0";
+  document.getElementById('chanceDisplay').textContent = "남은 기회: 3";
+  
+  nextQuestion();
+}
+
+function shuffleArray(arr){
+  for(let i=arr.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function nextQuestion(){
+  if(currentIndex < shuffledQuestions.length){
+    currentQuestion = shuffledQuestions[currentIndex];
+    currentIndex++;
+  } else {
+    // 100개 소진 후 무한 랜덤
+    currentQuestion = problems[Math.floor(Math.random()*problems.length)];
+  }
+  
+  document.getElementById('answerInput').value = "";
+  // 문제 텍스트에 MathJax 수식(\\( \\frac... \\)) 들어있음
+  document.getElementById('questionText').innerHTML = currentQuestion.question;
+  document.getElementById('feedback').textContent = "";
+  
+  // 2) MathJax 렌더링: 새로 변경된 HTML에 대해 typeset
+  //   v3에서는 보통 MathJax.typesetPromise() 혹은 MathJax.typeset() 사용
+  MathJax.typesetPromise();
+  
+  setupEnergyBar();
+}
+
+function setupEnergyBar(){
+  if(difficulty === '하'){
+    document.getElementById('energyBarContainer').classList.add('hidden');
+    return;
+  }
+  document.getElementById('energyBarContainer').classList.remove('hidden');
+  
+  energyTime = maxEnergyTime;
+  updateEnergyBar();
+  clearInterval(energyInterval);
+  energyInterval = setInterval(()=>{
+    energyTime -= 0.2;
+    if(energyTime <= 0){
+      clearInterval(energyInterval);
+      timeOverHandler();
+    } else {
+      updateEnergyBar();
+    }
+  }, 200);
+}
+
+function updateEnergyBar(){
+  let percent = (energyTime / maxEnergyTime)*100;
+  document.getElementById('energyBar').style.width = percent + "%";
+}
+
+function timeOverHandler(){
+  chance--;
+  document.getElementById('chanceDisplay').textContent = "남은 기회: " + chance;
+  document.getElementById('feedback').textContent = 
+    "시간초과! 정답은 " + currentQuestion.answer + " 입니다.";
+  
+  if(chance <= 0){
+    endGame();
+    return;
+  }
+  setTimeout(nextQuestion, 1500);
+}
+
+function submitAnswer(){
+  if(difficulty !== '하'){
+    clearInterval(energyInterval);
+  }
+  
+  let userAns = document.getElementById('answerInput').value.trim();
+  if(!userAns){
+    document.getElementById('feedback').textContent = "답을 입력하세요!";
+    if(difficulty !== '하') setupEnergyBar();
+    return;
+  }
+  
+  if(userAns === currentQuestion.answer){
+    score += questionPoint;
+    document.getElementById('scoreDisplay').textContent = "점수: " + score;
+    document.getElementById('feedback').textContent = 
+      "정답입니다! +"+questionPoint+"점 획득!";
+    setTimeout(nextQuestion, 1000);
+  } else {
+    chance--;
+    document.getElementById('chanceDisplay').textContent = "남은 기회: " + chance;
+    document.getElementById('feedback').textContent = 
+      "오답입니다! 정답은 " + currentQuestion.answer + " 입니다.";
+    
+    if(chance <= 0){
+      setTimeout(endGame, 1500);
+    } else {
+      setTimeout(nextQuestion, 1500);
+    }
+  }
+}
+
+function endGame(){
+  clearInterval(totalTimeInterval);
+  clearInterval(energyInterval);
+  document.getElementById('gameScreen').classList.add('hidden');
+  document.getElementById('gameOverScreen').classList.remove('hidden');
+  document.getElementById('finalScore').textContent = 
+    "최종 점수: " + score + "점 / 총 걸린 시간: " + totalTime + "초";
+}
+</script>
+</body>
+</html>
