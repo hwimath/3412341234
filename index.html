@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>휘매쓰 연산 챌린지!</title>
+  <title>분수를 소수로</title>
   
   <!-- 1) MathJax 추가 (CDN) -->
   <!-- 아래 설정은 TeX-CHTML 변환을 사용, 인라인 수식 구분 기호를 \\( \\) 형태로 지정 -->
@@ -95,14 +95,26 @@
       font-size: 1.2rem;
       background-color: #ff9966;
     }
+    /* 이름 입력 스타일 */
+    #nameInputContainer {
+      margin: 10px 0;
+    }
+    #nameInputContainer input {
+      padding: 5px;
+      font-size: 1rem;
+    }
   </style>
 </head>
 <body>
 <div id="gameContainer">
-  <h1>휘매쓰 연산 챌린지!</h1>
+  <h1>분수를 소수로</h1>
   
-  <!-- 난이도 선택 화면 -->
+  <!-- 첫 화면: 이름 입력 및 난이도 선택 -->
   <div id="difficultyScreen">
+    <div id="nameInputContainer">
+      <label for="playerName">이름을 입력하세요:</label>
+      <input type="text" id="playerName" placeholder="이름을 입력" />
+    </div>
     <h3>난이도를 선택하세요</h3>
     <button class="difficultyBtn" onclick="selectDifficulty('최상')">최상 (20초, 문제당 20점)</button>
     <button class="difficultyBtn" onclick="selectDifficulty('상')">상 (30초, 문제당 15점)</button>
@@ -124,7 +136,9 @@
     <h3 id="questionText"></h3>
     <input type="text" id="answerInput" placeholder="답을 입력" />
     <br />
-    <button onclick="submitAnswer()">제출</button>
+    <button id="submitBtn" onclick="submitAnswer()">제출</button>
+    <!-- '다음 문제' 버튼은 답 제출 후에만 나타납니다. -->
+    <button id="nextQuestionBtn" class="hidden" onclick="handleNextQuestion()">다음 문제</button>
     
     <div id="feedback"></div>
   </div>
@@ -133,6 +147,9 @@
   <div id="gameOverScreen" class="hidden">
     <h2>게임 종료!</h2>
     <p id="finalScore"></p>
+    <!-- 점수 전송 버튼 및 결과 메시지 -->
+    <button id="scoreSubmitBtn" onclick="submitScore()">점수전송</button>
+    <div id="response"></div>
     <button onclick="location.reload()">다시 시작하기</button>
   </div>
 </div>
@@ -146,7 +163,8 @@
     4) 문제 표시 후 MathJax.typesetPromise() 호출
 */
 
-// 1) 문제 데이터 100개 생성
+// 전역 변수
+let playerName = "";
 const problems = [];
 generateFractionDecimalProblems(100);
 
@@ -198,6 +216,14 @@ function generateFractionDecimalProblems(num){
 }
 
 function selectDifficulty(diff){
+  // 이름 입력 체크
+  const nameInput = document.getElementById('playerName').value.trim();
+  if (!nameInput) {
+    alert("이름을 입력하세요!");
+    return;
+  }
+  playerName = nameInput;
+  
   difficulty = diff;
   switch(diff){
     case '최상':
@@ -252,6 +278,11 @@ function shuffleArray(arr){
 }
 
 function nextQuestion(){
+  // 다음 문제 버튼은 숨김 처리
+  document.getElementById('nextQuestionBtn').classList.add('hidden');
+  // 제출 버튼 활성화 (중복 제출 방지 방지)
+  document.getElementById('submitBtn').disabled = false;
+  
   if(currentIndex < shuffledQuestions.length){
     currentQuestion = shuffledQuestions[currentIndex];
     currentIndex++;
@@ -261,12 +292,11 @@ function nextQuestion(){
   }
   
   document.getElementById('answerInput').value = "";
+  document.getElementById('feedback').textContent = "";
   // 문제 텍스트에 MathJax 수식(\\( \\frac... \\)) 들어있음
   document.getElementById('questionText').innerHTML = currentQuestion.question;
-  document.getElementById('feedback').textContent = "";
   
   // 2) MathJax 렌더링: 새로 변경된 HTML에 대해 typeset
-  //   v3에서는 보통 MathJax.typesetPromise() 혹은 MathJax.typeset() 사용
   MathJax.typesetPromise();
   
   setupEnergyBar();
@@ -304,14 +334,20 @@ function timeOverHandler(){
   document.getElementById('feedback').textContent = 
     "시간초과! 정답은 " + currentQuestion.answer + " 입니다.";
   
+  // 제출 버튼 비활성화하여 중복 입력 방지
+  document.getElementById('submitBtn').disabled = true;
+  
+  // 답 제출 후 '다음 문제' 버튼 활성화
+  document.getElementById('nextQuestionBtn').classList.remove('hidden');
+  
   if(chance <= 0){
-    endGame();
-    return;
+    // 기회 소진 시 '다음 문제' 버튼 대신 게임 종료 버튼 처리
+    setTimeout(endGame, 1500);
   }
-  setTimeout(nextQuestion, 1500);
 }
 
 function submitAnswer(){
+  // 시간제한이 있는 난이도라면 타이머 정지
   if(difficulty !== '하'){
     clearInterval(energyInterval);
   }
@@ -323,24 +359,34 @@ function submitAnswer(){
     return;
   }
   
+  // 제출 후 다시 제출 못하도록 비활성화
+  document.getElementById('submitBtn').disabled = true;
+  
   if(userAns === currentQuestion.answer){
     score += questionPoint;
     document.getElementById('scoreDisplay').textContent = "점수: " + score;
     document.getElementById('feedback').textContent = 
-      "정답입니다! +"+questionPoint+"점 획득!";
-    setTimeout(nextQuestion, 1000);
+      "정답입니다! +" + questionPoint + "점 획득!";
   } else {
     chance--;
     document.getElementById('chanceDisplay').textContent = "남은 기회: " + chance;
     document.getElementById('feedback').textContent = 
       "오답입니다! 정답은 " + currentQuestion.answer + " 입니다.";
-    
-    if(chance <= 0){
-      setTimeout(endGame, 1500);
-    } else {
-      setTimeout(nextQuestion, 1500);
-    }
   }
+  
+  // 답 제출 후 '다음 문제' 버튼 활성화 (정답/오답 모두)
+  document.getElementById('nextQuestionBtn').classList.remove('hidden');
+  
+  // 기회 소진 시 게임 종료 처리
+  if(chance <= 0){
+    setTimeout(endGame, 1500);
+  }
+}
+
+function handleNextQuestion(){
+  // 다음 문제 버튼 클릭 시 숨기고 새 문제로 넘어감
+  document.getElementById('nextQuestionBtn').classList.add('hidden');
+  nextQuestion();
 }
 
 function endGame(){
@@ -350,6 +396,49 @@ function endGame(){
   document.getElementById('gameOverScreen').classList.remove('hidden');
   document.getElementById('finalScore').textContent = 
     "최종 점수: " + score + "점 / 총 걸린 시간: " + totalTime + "초";
+}
+
+/* -------------------------
+   데이터 전송 관련 함수
+   ------------------------- */
+async function saveData(game, name, score, elapsedTime) {
+    const FUNCTION_URL = "https://us-central1-record-f420d.cloudfunctions.net/report";
+
+    const requestData = {
+        game,
+        name,
+        score: parseInt(score, 10),
+        elapsedTime: parseInt(elapsedTime, 10)
+    };
+
+    try {
+        const response = await fetch(FUNCTION_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok) {
+            document.getElementById('response').innerText = 
+                `성공: ${JSON.stringify(responseData, null, 2)}`;
+        } else {
+            document.getElementById('response').innerText = 
+                `오류: ${JSON.stringify(responseData, null, 2)}`;
+        }
+    } catch (error) {
+        console.error('요청 실패:', error);
+        document.getElementById('response').innerText = 
+            `네트워크 오류: ${error.message}`;
+    }
+}
+
+function submitScore(){
+  // 게임 이름은 "분수를 소수로"로 고정
+  saveData("분수를 소수로", playerName, score, totalTime);
 }
 </script>
 </body>
